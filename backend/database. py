@@ -1,0 +1,565 @@
+"""
+Database Manager Module
+Handles Firebase Firestore operations for video sessions and transcripts
+"""
+
+import os
+import json
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any
+import hashlib
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    FIREBASE_AVAILABLE = True
+except ImportError:
+    FIREBASE_AVAILABLE = False
+
+from config import config
+
+class DatabaseManager:
+    def __init__(self):
+        self.db = None
+        self._initialize_database()
+        
+    def _initialize_database(self):
+        """Initialize database connection"""
+        try:
+            # Check if Firebase should be used
+            use_firebase = all(config.FIREBASE_CONFIG.values()) and FIREBASE_AVAILABLE
+            
+            if use_firebase:
+                # Initialize Firebase
+                if not firebase_admin._apps:
+                    if config.FIREBASE_SERVICE_ACCOUNT_PATH and os.path.exists(config.FIREBASE_SERVICE_ACCOUNT_PATH):
+                        cred = credentials.Certificate(config.FIREBASE_SERVICE_ACCOUNT_PATH)
+                    else:
+                        cred = credentials.Certificate({
+                            "type": "service_account",
+                            "project_id": config.FIREBASE_CONFIG['projectId'],
+                            "private_key_id": config.FIREBASE_CONFIG.get('private_key_id', ''),
+                            "private_key": config.FIREBASE_CONFIG.get('private_key', '').replace('\\n', '\n'),
+                            "client_email": config.FIREBASE_CONFIG.get('client_email', ''),
+                            "client_id": config.FIREBASE_CONFIG.get('client_id', ''),
+                            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                            "token_uri": "https://oauth2.googleapis.com/token",
+                            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                            "client_x509_cert_url": config.FIREBASE_CONFIG.get('client_x509_cert_url', '')
+                        })
+                    firebase_admin.initialize_app(cred)
+                
+                self.db = firestore.client()
+                self.storage_type = 'firebase'
+                print("✅ Firebase Firestore initialized successfully")
+            else:
+                # Use local JSON storage
+                self._setup_local_storage()
+                self.storage_type = 'local_json'
+                print("⚠️  Using local JSON storage (Firebase not configured)")
+                
+        except Exception as e:
+            print(f"❌ Database initialization failed: {e}")
+            self._setup_local_storage()
+            self.storage_type = 'local_json'
+    
+    def _setup_local_storage(self):
+        """Setup local JSON file storage"""
+        self.local_storage_path = "local_data"
+        os.makedirs(self.local_storage_path, exist_ok=True)
+        
+        # Initialize collections
+        self.collections = {
+            'video_sessions': os.path.join(self.local_storage_path, 'video_sessions.json'),
+            'transcripts': os.path.join(self.local_storage_path, 'transcripts.json'),
+            'chat_history': os.path.join(self.local_storage_path, 'chat_history.json'),
+            'ai_responses': os.path.join(self.local_storage_path, 'ai_responses.json'),
+            'user_sessions': os.path.join(self.local_storage_path, 'user_sessions.json')
+        }
+        
+        # Create empty JSON files if they don't exist
+        for collection_path in self.collections.values():
+            if not os.path.exists(collection_path):
+                with open(collection_path, 'w', encoding='utf-8') as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+    
+    # ==================== VIDEO SESSION OPERATIONS ====================
+    
+    def create_video_session(self, video_url: str, platform: str, metadata: Dict = None) -> str:
+        """Create a new video session and return session ID"""
+        session_id = hashlib.md5(f"{video_url}_{datetime.now().timestamp()}".encode()).hexdigest()[:16]
+        
+        session_data = {
+            'session_id': session_id,
+            'video_url': video_url,
+            'platform': platform,
+            'metadata': metadata or {},
+            'status': 'created',
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat(),
+            'transcript_available': False,
+            'ai_processed': False
+        }
+        
+        if self.storage_type == 'firebase':
+            doc_ref = self.db.collection('video_sessions').document(session_id)
+            doc_ref.set(session_data)
+        else:
+            self._save_to_local_json('video_sessions', session_id, session_data)
+        
+        return session_id
+    
+    def get_video_session(self, session_id: str) -> Optional[Dict]:
+        """Get video session by ID"""
+        try:
+            if self.storage_type == 'firebase':
+                doc_ref = self.db.collection('video_sessions').document(session_id)
+                doc = doc_ref.get()
+                return doc.to_dict() if doc.exists else None
+            else:
+                return self._get_from_local_json('video_sessions', session_id, 'session_id')
+        except Exception as e:
+            print(f"Error getting video session: {e}")
+            return None
+    
+    def update_video_session(self, session_id: str, updates: Dict) -> bool:
+        """Update video session"""
+        try:
+            updates['updated_at'] = datetime.now().isoformat()
+            
+            if self.storage_type == 'firebase':
+                doc_ref = self.db.collection('video_sessions').document(session_id)
+                doc_ref.update(updates)
+            else:
+                self._update_local_json('video_sessions', session_id, updates, 'session_id')
+            
+            return True
+        except Exception as e:
+            print(f"Error updating video session: {e}")
+            return False
+    
+    # ==================== TRANSCRIPT OPERATIONS ====================
+    
+    def save_transcript(self, session_id: str, transcript_data: Dict, source: str) -> bool:
+        """Save transcript for a session"""
+        try:
+            transcript_id = f"{session_id}_transcript"
+            
+            transcript_record = {
+                'transcript_id': transcript_id,
+                'session_id': session_id,
+                'data': transcript_data,
+                'source': source,
+                'sentences_count': len(transcript_data.get('sentences', [])),
+                'word_count': sum(len(s.get('text', '').split()) for s in transcript_data.get('sentences', [])),
+                'duration': transcript_data.get('duration', 0),
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+            
+            if self.storage_type == 'firebase':
+                doc_ref = self.db.collection('transcripts').document(transcript_id)
+                doc_ref.set(transcript_record)
+            else:
+                self._save_to_local_json('transcripts', transcript_id, transcript_record, 'transcript_id')
+            
+            # Update session to mark transcript available
+            self.update_video_session(session_id, {'transcript_available': True})
+            
+            return True
+        except Exception as e:
+            print(f"Error saving transcript: {e}")
+            return False
+    
+    def get_transcript(self, session_id: str) -> Optional[Dict]:
+        """Get transcript for a session"""
+        try:
+            transcript_id = f"{session_id}_transcript"
+            
+            if self.storage_type == 'firebase':
+                doc_ref = self.db.collection('transcripts').document(transcript_id)
+                doc = doc_ref.get()
+                return doc.to_dict() if doc.exists else None
+            else:
+                return self._get_from_local_json('transcripts', transcript_id, 'transcript_id')
+        except Exception as e:
+            print(f"Error getting transcript: {e}")
+            return None
+    
+    # ==================== CHAT HISTORY OPERATIONS ====================
+    
+    def save_chat_message(self, session_id: str, role: str, content: str, 
+                         model: str, metadata: Dict = None) -> str:
+        """Save chat message and return message ID"""
+        try:
+            message_id = f"{session_id}_{int(datetime.now().timestamp() * 1000)}"
+            
+            chat_message = {
+                'message_id': message_id,
+                'session_id': session_id,
+                'role': role,  # 'user' or 'assistant'
+                'content': content,
+                'model': model,
+                'metadata': metadata or {},
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            if self.storage_type == 'firebase':
+                doc_ref = self.db.collection('chat_history').document(message_id)
+                doc_ref.set(chat_message)
+            else:
+                self._save_to_local_json('chat_history', message_id, chat_message, 'message_id')
+            
+            return message_id
+        except Exception as e:
+            print(f"Error saving chat message: {e}")
+            return ""
+    
+    def get_chat_history(self, session_id: str, limit: int = 50) -> List[Dict]:
+        """Get chat history for a session"""
+        try:
+            if self.storage_type == 'firebase':
+                query = (self.db.collection('chat_history')
+                        .where('session_id', '==', session_id)
+                        .order_by('timestamp')
+                        .limit(limit))
+                docs = query.stream()
+                return [doc.to_dict() for doc in docs]
+            else:
+                return self._query_local_json('chat_history', 
+                                            lambda x: x.get('session_id') == session_id, 
+                                            'timestamp', limit)
+        except Exception as e:
+            print(f"Error getting chat history: {e}")
+            return []
+    
+    def clear_chat_history(self, session_id: str) -> bool:
+        """Clear chat history for a session"""
+        try:
+            if self.storage_type == 'firebase':
+                # Firestore doesn't support bulk delete in queries easily
+                # We'll mark as deleted instead
+                batch = self.db.batch()
+                query = self.db.collection('chat_history').where('session_id', '==', session_id)
+                
+                for doc in query.stream():
+                    doc_ref = self.db.collection('chat_history').document(doc.id)
+                    batch.update(doc_ref, {'deleted': True})
+                
+                batch.commit()
+            else:
+                # For local JSON, filter out the session's messages
+                self._delete_from_local_json('chat_history', 
+                                           lambda x: x.get('session_id') == session_id)
+            
+            return True
+        except Exception as e:
+            print(f"Error clearing chat history: {e}")
+            return False
+    
+    # ==================== AI RESPONSE CACHING ====================
+    
+    def save_ai_response(self, session_id: str, query: str, 
+                        response: Dict, model: str) -> str:
+        """Save AI response for caching"""
+        try:
+            # Create cache key from session ID and query
+            cache_key = hashlib.md5(f"{session_id}:{query}".encode()).hexdigest()[:16]
+            
+            ai_response = {
+                'cache_key': cache_key,
+                'session_id': session_id,
+                'query': query,
+                'response': response,
+                'model': model,
+                'timestamp': datetime.now().isoformat(),
+                'expires_at': (datetime.now() + timedelta(hours=24)).isoformat()
+            }
+            
+            if self.storage_type == 'firebase':
+                doc_ref = self.db.collection('ai_responses').document(cache_key)
+                doc_ref.set(ai_response)
+            else:
+                self._save_to_local_json('ai_responses', cache_key, ai_response, 'cache_key')
+            
+            return cache_key
+        except Exception as e:
+            print(f"Error saving AI response: {e}")
+            return ""
+    
+    def get_cached_response(self, session_id: str, query: str) -> Optional[Dict]:
+        """Get cached AI response if available and not expired"""
+        try:
+            cache_key = hashlib.md5(f"{session_id}:{query}".encode()).hexdigest()[:16]
+            
+            if self.storage_type == 'firebase':
+                doc_ref = self.db.collection('ai_responses').document(cache_key)
+                doc = doc_ref.get()
+                
+                if doc.exists:
+                    data = doc.to_dict()
+                    expires_at = datetime.fromisoformat(data['expires_at'])
+                    
+                    if datetime.now() < expires_at:
+                        return data['response']
+            else:
+                data = self._get_from_local_json('ai_responses', cache_key, 'cache_key')
+                if data:
+                    expires_at = datetime.fromisoformat(data['expires_at'])
+                    if datetime.now() < expires_at:
+                        return data['response']
+            
+            return None
+        except Exception as e:
+            print(f"Error getting cached response: {e}")
+            return None
+    
+    # ==================== USER SESSION MANAGEMENT ====================
+    
+    def create_user_session(self, user_id: str = None) -> Dict:
+        """Create a new user session"""
+        if not user_id:
+            user_id = hashlib.md5(str(datetime.now().timestamp()).encode()).hexdigest()[:12]
+        
+        session_data = {
+            'user_id': user_id,
+            'created_at': datetime.now().isoformat(),
+            'last_activity': datetime.now().isoformat(),
+            'video_sessions': [],
+            'total_queries': 0,
+            'preferences': {}
+        }
+        
+        if self.storage_type == 'firebase':
+            doc_ref = self.db.collection('user_sessions').document(user_id)
+            doc_ref.set(session_data)
+        else:
+            self._save_to_local_json('user_sessions', user_id, session_data, 'user_id')
+        
+        return session_data
+    
+    def update_user_session(self, user_id: str, updates: Dict) -> bool:
+        """Update user session"""
+        try:
+            updates['last_activity'] = datetime.now().isoformat()
+            
+            if self.storage_type == 'firebase':
+                doc_ref = self.db.collection('user_sessions').document(user_id)
+                doc_ref.update(updates)
+            else:
+                self._update_local_json('user_sessions', user_id, updates, 'user_id')
+            
+            return True
+        except Exception as e:
+            print(f"Error updating user session: {e}")
+            return False
+    
+    # ==================== STATISTICS AND HEALTH ====================
+    
+    def get_stats(self) -> Dict:
+        """Get database statistics"""
+        try:
+            stats = {
+                'timestamp': datetime.now().isoformat(),
+                'storage_type': self.storage_type,
+                'collections': {}
+            }
+            
+            if self.storage_type == 'firebase':
+                for collection in ['video_sessions', 'transcripts', 'chat_history', 'ai_responses', 'user_sessions']:
+                    try:
+                        docs = self.db.collection(collection).stream()
+                        stats['collections'][collection] = len(list(docs))
+                    except:
+                        stats['collections'][collection] = 0
+            else:
+                for collection, file_path in self.collections.items():
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        stats['collections'][collection] = len(data)
+                    except:
+                        stats['collections'][collection] = 0
+            
+            return stats
+        except Exception as e:
+            print(f"Error getting stats: {e}")
+            return {'error': str(e)}
+    
+    def cleanup_expired_data(self, days: int = 7) -> Dict[str, int]:
+        """Cleanup data older than specified days"""
+        cleanup_stats = {}
+        cutoff_date = datetime.now() - timedelta(days=days)
+        
+        try:
+            if self.storage_type == 'firebase':
+                # For Firebase, we would typically use Cloud Functions for cleanup
+                # Here we just mark as expired
+                pass
+            else:
+                # Cleanup local JSON files
+                for collection_name, file_path in self.collections.items():
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    # Filter out old entries
+                    original_count = len(data)
+                    
+                    if collection_name == 'ai_responses':
+                        # Remove expired cache entries
+                        new_data = [
+                            item for item in data 
+                            if datetime.fromisoformat(item['expires_at']) > datetime.now()
+                        ]
+                    elif 'timestamp' in (data[0] if data else {}):
+                        # Remove old entries based on timestamp
+                        new_data = [
+                            item for item in data 
+                            if datetime.fromisoformat(item['timestamp']) > cutoff_date
+                        ]
+                    else:
+                        new_data = data
+                    
+                    # Save filtered data
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(new_data, f, ensure_ascii=False, indent=2)
+                    
+                    cleanup_stats[collection_name] = original_count - len(new_data)
+            
+            return cleanup_stats
+        except Exception as e:
+            print(f"Error cleaning up expired data: {e}")
+            return {'error': str(e)}
+    
+    # ==================== LOCAL JSON HELPER METHODS ====================
+    
+    def _save_to_local_json(self, collection: str, doc_id: str, data: Dict, id_field: str = 'id'):
+        """Save data to local JSON file"""
+        file_path = self.collections[collection]
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            all_data = json.load(f)
+        
+        # Remove existing entry with same ID
+        all_data = [item for item in all_data if item.get(id_field) != doc_id]
+        
+        # Add new entry
+        all_data.append(data)
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(all_data, f, ensure_ascii=False, indent=2)
+    
+    def _get_from_local_json(self, collection: str, doc_id: str, id_field: str = 'id') -> Optional[Dict]:
+        """Get data from local JSON file"""
+        file_path = self.collections[collection]
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            all_data = json.load(f)
+        
+        for item in all_data:
+            if item.get(id_field) == doc_id:
+                return item
+        
+        return None
+    
+    def _update_local_json(self, collection: str, doc_id: str, updates: Dict, id_field: str = 'id'):
+        """Update data in local JSON file"""
+        file_path = self.collections[collection]
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            all_data = json.load(f)
+        
+        for i, item in enumerate(all_data):
+            if item.get(id_field) == doc_id:
+                all_data[i].update(updates)
+                break
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(all_data, f, ensure_ascii=False, indent=2)
+    
+    def _delete_from_local_json(self, collection: str, filter_func):
+        """Delete data from local JSON file"""
+        file_path = self.collections[collection]
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            all_data = json.load(f)
+        
+        # Filter out matching items
+        new_data = [item for item in all_data if not filter_func(item)]
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(new_data, f, ensure_ascii=False, indent=2)
+    
+    def _query_local_json(self, collection: str, filter_func, sort_field: str = None, limit: int = 50) -> List[Dict]:
+        """Query data from local JSON file"""
+        file_path = self.collections[collection]
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            all_data = json.load(f)
+        
+        filtered_data = [item for item in all_data if filter_func(item)]
+        
+        # Sort if sort_field is provided
+        if sort_field and filtered_data and sort_field in filtered_data[0]:
+            filtered_data.sort(key=lambda x: x[sort_field])
+        
+        return filtered_data[:limit]
+    
+    def export_session_data(self, session_id: str) -> Optional[Dict]:
+        """Export all session data for backup"""
+        try:
+            session_data = self.get_video_session(session_id)
+            if not session_data:
+                return None
+            
+            export_data = {
+                'session_info': session_data,
+                'transcript': self.get_transcript(session_id),
+                'chat_history': self.get_chat_history(session_id, 100),
+                'export_timestamp': datetime.now().isoformat(),
+                'export_format': 'json_v1'
+            }
+            
+            return export_data
+        except Exception as e:
+            print(f"Error exporting session data: {e}")
+            return None
+    
+    def check_health(self) -> Dict:
+        """Check database health"""
+        try:
+            if self.storage_type == 'firebase':
+                # Test Firebase connection
+                test_ref = self.db.collection('health_check').document('test')
+                test_ref.set({'test': True, 'timestamp': datetime.now().isoformat()})
+                test_ref.delete()
+                
+                return {
+                    'status': 'healthy',
+                    'type': 'firebase',
+                    'connected': True,
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                # Test local storage
+                test_file = os.path.join(self.local_storage_path, 'test.json')
+                with open(test_file, 'w', encoding='utf-8') as f:
+                    json.dump({'test': True}, f)
+                os.remove(test_file)
+                
+                return {
+                    'status': 'healthy',
+                    'type': 'local_json',
+                    'storage_path': self.local_storage_path,
+                    'timestamp': datetime.now().isoformat()
+                }
+        except Exception as e:
+            return {
+                'status': 'unhealthy',
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
+
+
+# Singleton instance for easy access
+db_manager = DatabaseManager()
