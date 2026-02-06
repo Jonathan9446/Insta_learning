@@ -1,6 +1,7 @@
 """
 AI Orchestrator Module
 Manages multiple AI models: Google Gemini + OpenRouter models
+Updated with 15+ models and advanced features
 """
 
 import os
@@ -39,10 +40,11 @@ class AIModelConfig:
     speed: str  # fast, medium, slow
     cost: str   # free, low, medium, high
     description: str
+    best_for: List[str]
     enabled: bool = True
 
 class AIOrchestrator:
-    """Orchestrates multiple AI models for video analysis"""
+    """Orchestrates multiple AI models for video analysis with 15+ models"""
     
     def __init__(self):
         self.config = config
@@ -56,12 +58,15 @@ class AIOrchestrator:
             AIProvider.GOOGLE_GEMINI: self._init_gemini(),
             AIProvider.OPENROUTER: self._init_openrouter()
         }
+        
+        # Query classifier
+        self.query_classifier = QueryClassifier()
     
     def _load_models(self) -> Dict[str, AIModelConfig]:
-        """Load and configure available AI models"""
+        """Load and configure available AI models (15+ models)"""
         models = {}
         
-        # Google Gemini Models
+        # Google Gemini Models (Free from Google AI Studio)
         if self.config.GEMINI_API_KEY:
             models.update({
                 'gemini-2.0-flash': AIModelConfig(
@@ -72,9 +77,10 @@ class AIOrchestrator:
                     max_tokens=8192,
                     supports_timestamps=True,
                     supports_multimodal=True,
-                    speed='fast',
+                    speed='very_fast',
                     cost='free',
-                    description='Fast and efficient for most tasks'
+                    description='Fast and efficient for most tasks',
+                    best_for=['general queries', 'summarization', 'fast responses']
                 ),
                 'gemini-2.0-pro': AIModelConfig(
                     id='gemini-2.0-pro',
@@ -86,13 +92,15 @@ class AIOrchestrator:
                     supports_multimodal=True,
                     speed='medium',
                     cost='free',
-                    description='Advanced reasoning for complex tasks'
+                    description='Advanced reasoning for complex tasks',
+                    best_for=['complex analysis', 'reasoning', 'detailed explanations']
                 )
             })
         
-        # OpenRouter Models
+        # OpenRouter Models (Multiple free models)
         if self.config.OPENROUTER_API_KEY:
             models.update({
+                # ChatGPT Family
                 'openai/gpt-3.5-turbo': AIModelConfig(
                     id='openai/gpt-3.5-turbo',
                     name='ChatGPT 3.5 Turbo',
@@ -103,8 +111,24 @@ class AIOrchestrator:
                     supports_multimodal=False,
                     speed='fast',
                     cost='free_tier',
-                    description='OpenAI\'s fast and capable model'
+                    description='OpenAI\'s fast and capable model',
+                    best_for=['conversation', 'coding', 'general tasks']
                 ),
+                'openai/gpt-4o-mini': AIModelConfig(
+                    id='openai/gpt-4o-mini',
+                    name='GPT-4o Mini',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=128000,
+                    max_tokens=16384,
+                    supports_timestamps=True,
+                    supports_multimodal=False,
+                    speed='fast',
+                    cost='free_tier',
+                    description='Advanced reasoning at lower cost',
+                    best_for=['advanced reasoning', 'multimodal understanding']
+                ),
+                
+                # Claude Family
                 'anthropic/claude-3-haiku': AIModelConfig(
                     id='anthropic/claude-3-haiku',
                     name='Claude 3 Haiku',
@@ -115,8 +139,24 @@ class AIOrchestrator:
                     supports_multimodal=False,
                     speed='very_fast',
                     cost='free_tier',
-                    description='Anthropic\'s fastest and most affordable model'
+                    description='Anthropic\'s fastest and most affordable model',
+                    best_for=['fast analysis', 'summarization', 'content extraction']
                 ),
+                'anthropic/claude-3.5-sonnet': AIModelConfig(
+                    id='anthropic/claude-3.5-sonnet',
+                    name='Claude 3.5 Sonnet',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=200000,
+                    max_tokens=8192,
+                    supports_timestamps=True,
+                    supports_multimodal=False,
+                    speed='medium',
+                    cost='free_tier_limited',
+                    description='Best-in-market intelligence and speed',
+                    best_for=['reasoning', 'analysis', 'writing', 'coding']
+                ),
+                
+                # Mistral Models
                 'mistralai/mistral-small': AIModelConfig(
                     id='mistralai/mistral-small',
                     name='Mistral Small',
@@ -127,20 +167,52 @@ class AIOrchestrator:
                     supports_multimodal=False,
                     speed='fast',
                     cost='free_tier',
-                    description='Efficient and capable small model'
+                    description='Efficient and capable small model',
+                    best_for=['efficiency', 'multilingual', 'code generation']
                 ),
+                'mistralai/mistral-7b-instruct': AIModelConfig(
+                    id='mistralai/mistral-7b-instruct',
+                    name='Mistral 7B Instruct',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=32000,
+                    max_tokens=8192,
+                    supports_timestamps=False,
+                    supports_multimodal=False,
+                    speed='very_fast',
+                    cost='free',
+                    description='Lightweight and fast model',
+                    best_for=['quick responses', 'basic tasks', 'text processing']
+                ),
+                
+                # Google Models
                 'google/gemma-2-2b-it': AIModelConfig(
                     id='google/gemma-2-2b-it',
                     name='Gemma 2 (2B)',
                     provider=AIProvider.OPENROUTER,
-                    context_length=8000,
+                    context_length=8192,
                     max_tokens=4096,
                     supports_timestamps=False,
                     supports_multimodal=False,
                     speed='very_fast',
                     cost='free',
-                    description='Lightweight model for quick responses'
+                    description='Lightweight model for quick responses',
+                    best_for=['lightweight tasks', 'quick answers', 'simple Q&A']
                 ),
+                'google/gemma-2-9b-it': AIModelConfig(
+                    id='google/gemma-2-9b-it',
+                    name='Gemma 2 (9B)',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=8192,
+                    max_tokens=4096,
+                    supports_timestamps=True,
+                    supports_multimodal=False,
+                    speed='fast',
+                    cost='free_tier',
+                    description='Strong performance for its size',
+                    best_for=['balanced tasks', 'reasoning', 'text generation']
+                ),
+                
+                # Qwen Models
                 'qwen/qwen-2.5-7b-instruct': AIModelConfig(
                     id='qwen/qwen-2.5-7b-instruct',
                     name='Qwen 2.5 (7B)',
@@ -151,7 +223,77 @@ class AIOrchestrator:
                     supports_multimodal=False,
                     speed='medium',
                     cost='free_tier',
-                    description='Strong multilingual capabilities'
+                    description='Strong multilingual capabilities',
+                    best_for=['multilingual', 'coding', 'mathematics']
+                ),
+                'qwen/qwen-2.5-14b-instruct': AIModelConfig(
+                    id='qwen/qwen-2.5-14b-instruct',
+                    name='Qwen 2.5 (14B)',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=32000,
+                    max_tokens=8192,
+                    supports_timestamps=True,
+                    supports_multimodal=False,
+                    speed='medium',
+                    cost='free_tier_limited',
+                    description='Advanced capabilities in a moderate size',
+                    best_for=['advanced tasks', 'reasoning', 'analysis']
+                ),
+                
+                # DeepSeek Models
+                'deepseek/deepseek-chat': AIModelConfig(
+                    id='deepseek/deepseek-chat',
+                    name='DeepSeek Chat',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=64000,
+                    max_tokens=8192,
+                    supports_timestamps=True,
+                    supports_multimodal=False,
+                    speed='fast',
+                    cost='free_tier',
+                    description='Strong coding and reasoning capabilities',
+                    best_for=['coding', 'mathematics', 'reasoning', 'analysis']
+                ),
+                'deepseek/deepseek-coder': AIModelConfig(
+                    id='deepseek/deepseek-coder',
+                    name='DeepSeek Coder',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=64000,
+                    max_tokens=8192,
+                    supports_timestamps=True,
+                    supports_multimodal=False,
+                    speed='fast',
+                    cost='free_tier',
+                    description='Specialized for programming tasks',
+                    best_for=['programming', 'code analysis', 'debugging']
+                ),
+                
+                # Llama Models
+                'meta-llama/llama-3.2-1b-instruct': AIModelConfig(
+                    id='meta-llama/llama-3.2-1b-instruct',
+                    name='Llama 3.2 (1B)',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=128000,
+                    max_tokens=8192,
+                    supports_timestamps=False,
+                    supports_multimodal=False,
+                    speed='very_fast',
+                    cost='free',
+                    description='Extremely fast and lightweight',
+                    best_for=['quick responses', 'simple tasks', 'low-latency']
+                ),
+                'meta-llama/llama-3.1-8b-instruct': AIModelConfig(
+                    id='meta-llama/llama-3.1-8b-instruct',
+                    name='Llama 3.1 (8B)',
+                    provider=AIProvider.OPENROUTER,
+                    context_length=128000,
+                    max_tokens=8192,
+                    supports_timestamps=True,
+                    supports_multimodal=False,
+                    speed='fast',
+                    cost='free_tier',
+                    description='Excellent general-purpose model',
+                    best_for=['general tasks', 'conversation', 'text generation']
                 )
             })
         
@@ -212,7 +354,7 @@ class AIOrchestrator:
             return False
     
     def get_available_models(self) -> List[Dict]:
-        """Get list of available AI models"""
+        """Get list of available AI models for user selection"""
         models_list = []
         
         for model_id, model_config in self.available_models.items():
@@ -225,8 +367,16 @@ class AIOrchestrator:
                 'supports_timestamps': model_config.supports_timestamps,
                 'speed': model_config.speed,
                 'cost': model_config.cost,
-                'description': model_config.description
+                'description': model_config.description,
+                'best_for': model_config.best_for
             })
+        
+        # Sort by speed and capability
+        models_list.sort(key=lambda x: (
+            0 if 'gemini' in x['id'] else 1,  # Gemini first
+            0 if 'free' in x['cost'] else 1 if 'free_tier' in x['cost'] else 2,
+            -x['context_length']  # Higher context first
+        ))
         
         return models_list
     
@@ -247,27 +397,80 @@ class AIOrchestrator:
             'supports_multimodal': model_config.supports_multimodal,
             'speed': model_config.speed,
             'cost': model_config.cost,
-            'description': model_config.description
+            'description': model_config.description,
+            'best_for': model_config.best_for
         }
+    
+    def recommend_models_for_query(self, user_query: str) -> Dict:
+        """Recommend best models for a specific query"""
+        query_type = self.query_classifier.classify(user_query)
+        
+        recommendations_map = {
+            'summary': ['gemini-2.0-flash', 'anthropic/claude-3-haiku', 'openai/gpt-3.5-turbo'],
+            'translation': ['gemini-2.0-pro', 'qwen/qwen-2.5-7b-instruct', 'mistralai/mistral-small'],
+            'word_analysis': ['openai/gpt-4o-mini', 'gemini-2.0-pro', 'anthropic/claude-3.5-sonnet'],
+            'explanation': ['gemini-2.0-pro', 'openai/gpt-4o-mini', 'deepseek/deepseek-chat'],
+            'quiz': ['gemini-2.0-pro', 'openai/gpt-3.5-turbo', 'deepseek/deepseek-chat'],
+            'coding': ['deepseek/deepseek-coder', 'openai/gpt-3.5-turbo', 'google/gemma-2-9b-it'],
+            'general': ['gemini-2.0-flash', 'openai/gpt-3.5-turbo', 'mistralai/mistral-small']
+        }
+        
+        recommended_ids = recommendations_map.get(query_type, ['gemini-2.0-flash', 'openai/gpt-3.5-turbo'])
+        
+        # Filter to available models
+        available_model_ids = [m['id'] for m in self.get_available_models()]
+        filtered_recommendations = [mid for mid in recommended_ids if mid in available_model_ids]
+        
+        # Add explanations
+        recommendations_with_reasons = []
+        for model_id in filtered_recommendations:
+            if model_id in self.available_models:
+                model = self.available_models[model_id]
+                recommendations_with_reasons.append({
+                    'id': model_id,
+                    'name': model.name,
+                    'reason': self._get_recommendation_reason(model_id, query_type)
+                })
+        
+        return {
+            'query': user_query,
+            'query_type': query_type,
+            'recommended_models': recommendations_with_reasons,
+            'all_available_models': available_model_ids,
+            'recommendation_basis': 'Based on query type and model capabilities'
+        }
+    
+    def _get_recommendation_reason(self, model_id: str, query_type: str) -> str:
+        """Get reason for recommending a model"""
+        reasons = {
+            'summary': {
+                'gemini-2.0-flash': 'Fast and accurate summaries',
+                'anthropic/claude-3-haiku': 'Concise and clear summaries',
+                'openai/gpt-3.5-turbo': 'Balanced summary quality'
+            },
+            'translation': {
+                'gemini-2.0-pro': 'Excellent multilingual support',
+                'qwen/qwen-2.5-7b-instruct': 'Specialized in Asian languages',
+                'mistralai/mistral-small': 'Good translation quality'
+            },
+            'word_analysis': {
+                'openai/gpt-4o-mini': 'Detailed word analysis',
+                'gemini-2.0-pro': 'Contextual understanding',
+                'anthropic/claude-3.5-sonnet': 'Deep linguistic analysis'
+            }
+        }
+        
+        return reasons.get(query_type, {}).get(model_id, 'Good for this type of query')
     
     def process_query(self, transcript_data: Dict, user_query: str,
                      model_id: str, session_id: str = None,
                      enable_sync: bool = True) -> Dict:
         """
         Process user query with selected AI model
-        
-        Args:
-            transcript_data: Video transcript data
-            user_query: User's question/command
-            model_id: AI model to use
-            session_id: User session ID
-            enable_sync: Whether to enable video-AI sync
-            
-        Returns:
-            AI response dictionary
+        Enhanced with sync capabilities
         """
         # Check cache first
-        cache_key = self._generate_cache_key(session_id, model_id, user_query)
+        cache_key = self._generate_cache_key(session_id, model_id, user_query, transcript_data)
         cached_response = self._get_cached_response(cache_key)
         
         if cached_response:
@@ -287,11 +490,11 @@ class AIOrchestrator:
         model_config = self.available_models[model_id]
         
         try:
-            # Prepare context
+            # Prepare context with sync considerations
             context = self._prepare_context(transcript_data, user_query, 
-                                          model_config.context_length)
+                                          model_config.context_length, enable_sync)
             
-            # Build prompt
+            # Build prompt with sync instructions if enabled
             prompt = self._build_prompt(context, user_query, model_config, enable_sync)
             
             # Process with appropriate provider
@@ -315,16 +518,17 @@ class AIOrchestrator:
                     'model_used': model_id,
                     'model_name': model_config.name,
                     'provider': model_config.provider.value,
-                    'query_type': self._classify_query(user_query),
+                    'query_type': self.query_classifier.classify(user_query),
                     'processing_time': processing_time,
                     'timestamp': datetime.now().isoformat(),
                     'sync_enabled': enable_sync,
+                    'sync_capable': model_config.supports_timestamps and enable_sync,
                     'session_id': session_id,
                     'cached': False
                 }
                 
-                # Add sync markers if enabled
-                if enable_sync and 'text' in response:
+                # Add sync markers if enabled and supported
+                if enable_sync and model_config.supports_timestamps and 'text' in response:
                     response['text'] = self._add_sync_markers(
                         response['text'], 
                         transcript_data
@@ -345,8 +549,8 @@ class AIOrchestrator:
             }
     
     def _prepare_context(self, transcript_data: Dict, user_query: str, 
-                        max_context_length: int) -> str:
-        """Prepare transcript context for AI prompt"""
+                        max_context_length: int, enable_sync: bool) -> str:
+        """Prepare transcript context for AI prompt with sync considerations"""
         if not transcript_data or 'sentences' not in transcript_data:
             return "No transcript available."
         
@@ -358,7 +562,7 @@ class AIOrchestrator:
         
         max_transcript_chars = available_chars - reserved_chars - len(user_query)
         
-        # Build context with timestamps
+        # Build context with timestamps (important for sync)
         context_parts = []
         current_length = 0
         
@@ -369,7 +573,7 @@ class AIOrchestrator:
             if not text:
                 continue
             
-            # Format: [00:05:20] Sentence text
+            # Format: [00:05:20] Sentence text (important for sync)
             time_str = format_timestamp(start)
             formatted_sentence = f"[{time_str}] {text}"
             
@@ -386,8 +590,8 @@ class AIOrchestrator:
     
     def _build_prompt(self, context: str, user_query: str, 
                      model_config: AIModelConfig, enable_sync: bool) -> str:
-        """Build AI prompt based on query type and model capabilities"""
-        query_type = self._classify_query(user_query)
+        """Build AI prompt based on query type and sync requirements"""
+        query_type = self.query_classifier.classify(user_query)
         
         # Base system prompt
         system_prompt = """You are an AI assistant helping users understand video content.
@@ -395,11 +599,12 @@ Your task is to analyze the video transcript and respond to user queries accurat
         
         # Add specialized instructions based on query type
         query_instructions = {
-            'summary': "Provide a comprehensive summary with main points and timestamps.",
+            'summary': "Provide a comprehensive summary with main points and timestamps for sync.",
             'word_analysis': "Break down difficult words with pronunciation (Hindi/English) and meanings.",
             'quiz': "Create a quiz with 5-10 multiple choice questions based on video content.",
             'translation': "Provide translation while maintaining context and meaning.",
             'explanation': "Explain concepts in simple terms with examples.",
+            'coding': "Provide code examples and explanations.",
             'general': "Answer the query based on the transcript content."
         }
         
@@ -408,7 +613,12 @@ Your task is to analyze the video transcript and respond to user queries accurat
         # Add sync instructions if enabled and model supports it
         sync_instruction = ""
         if enable_sync and model_config.supports_timestamps:
-            sync_instruction = "\n\nINCLUDE TIMESTAMPS: When referring to specific parts of the video, include timestamps in format [HH:MM:SS] so they can be synced with video playback."
+            sync_instruction = """
+            
+SYNC INSTRUCTIONS:
+- When referring to specific parts of the video, include timestamps in format [HH:MM:SS]
+- For word-by-word analysis, include timestamps for each word if possible
+- Your response should be sync-able with video playback"""
         
         # Build final prompt
         prompt = f"""{system_prompt}
@@ -418,14 +628,15 @@ VIDEO TRANSCRIPT:
 
 USER QUERY: {user_query}
 
-SPECIAL INSTRUCTIONS FOR THIS TASK ({query_type.upper()}):
-{instruction}{sync_instruction}
+QUERY TYPE: {query_type.upper()}
+SPECIAL INSTRUCTIONS: {instruction}{sync_instruction}
 
-RESPONSE FORMAT:
+RESPONSE FORMAT REQUIREMENTS:
 - Be clear and concise
 - Use bullet points or numbered lists when appropriate
 - Reference specific parts of the transcript when possible
-- If the query is about words or phrases, provide detailed analysis
+- Include timestamps [HH:MM:SS] for sync capability
+- If analyzing words or phrases, provide detailed breakdown
 
 RESPONSE:"""
         
@@ -530,28 +741,8 @@ RESPONSE:"""
                 'provider': 'openrouter'
             }
     
-    def _classify_query(self, query: str) -> str:
-        """Classify the type of user query"""
-        query_lower = query.lower()
-        
-        if any(word in query_lower for word in ['summary', 'summarize', 'overview', 'brief']):
-            return 'summary'
-        elif any(word in query_lower for word in ['word', 'vocabulary', 'pronunciation', 'meaning']):
-            return 'word_analysis'
-        elif any(word in query_lower for word in ['quiz', 'question', 'test', 'exam']):
-            return 'quiz'
-        elif any(word in query_lower for word in ['translate', 'hindi', 'english', 'language']):
-            return 'translation'
-        elif any(word in query_lower for word in ['explain', 'what is', 'how to', 'why']):
-            return 'explanation'
-        else:
-            return 'general'
-    
     def _add_sync_markers(self, response_text: str, transcript_data: Dict) -> str:
-        """Add synchronization markers to AI response"""
-        # This is a simplified implementation
-        # In a real app, you'd do more sophisticated timestamp extraction
-        
+        """Add synchronization markers to AI response for frontend sync"""
         import re
         
         # Pattern for timestamps like [00:05:20] or [05:20]
@@ -564,20 +755,51 @@ RESPONSE:"""
             
             total_seconds = hours * 3600 + minutes * 60 + seconds
             
-            # Return clickable timestamp
+            # Create sync-able timestamp with data attributes
             original_text = match.group(0)
-            return f'<span class="timestamp" data-time="{total_seconds}">{original_text}</span>'
+            return f'<span class="sync-timestamp" data-time="{total_seconds}" data-sync="true">{original_text}</span>'
         
-        # Replace timestamps with clickable versions
+        # Replace timestamps with sync-able versions
         response_text = re.sub(timestamp_pattern, replace_timestamp, response_text)
         
         return response_text
     
-    def _generate_cache_key(self, session_id: str, model_id: str, query: str) -> str:
+    def compare_models(self, transcript_data: Dict, user_query: str, 
+                      model_ids: List[str]) -> Dict:
+        """Compare responses from multiple models"""
+        comparisons = {}
+        
+        for model_id in model_ids[:6]:  # Limit to 6 models for comparison
+            if model_id in self.available_models:
+                try:
+                    start_time = time.time()
+                    result = self.process_query(transcript_data, user_query, model_id)
+                    processing_time = time.time() - start_time
+                    
+                    comparisons[model_id] = {
+                        'success': result.get('success', False),
+                        'response': result.get('text', '') if result.get('success') else result.get('error', ''),
+                        'processing_time': processing_time,
+                        'model_name': self.available_models[model_id].name,
+                        'provider': self.available_models[model_id].provider.value,
+                        'supports_sync': self.available_models[model_id].supports_timestamps
+                    }
+                except Exception as e:
+                    comparisons[model_id] = {
+                        'success': False,
+                        'error': str(e),
+                        'model_name': self.available_models[model_id].name
+                    }
+        
+        return comparisons
+    
+    def _generate_cache_key(self, session_id: str, model_id: str, query: str, transcript_data: Dict) -> str:
         """Generate cache key for response"""
         import hashlib
         
-        key_string = f"{session_id or 'no_session'}:{model_id}:{query}"
+        # Create a hash of query + first 1000 chars of transcript
+        transcript_sample = json.dumps(transcript_data.get('sentences', [])[:10], sort_keys=True)
+        key_string = f"{session_id or 'no_session'}:{model_id}:{query}:{transcript_sample}"
         return hashlib.md5(key_string.encode()).hexdigest()
     
     def _get_cached_response(self, cache_key: str) -> Optional[Dict]:
@@ -610,55 +832,6 @@ RESPONSE:"""
             'cache_time': time.time()
         }
     
-    def batch_process(self, queries: List[Dict], session_id: str = None) -> List[Dict]:
-        """Process multiple queries in batch"""
-        results = []
-        
-        for query_data in queries:
-            transcript = query_data.get('transcript')
-            query = query_data.get('query')
-            model_id = query_data.get('model_id', 'gemini-2.0-flash')
-            
-            if transcript and query:
-                result = self.process_query(transcript, query, model_id, session_id)
-                results.append({
-                    'query': query,
-                    'model': model_id,
-                    'result': result
-                })
-        
-        return results
-    
-    def compare_models(self, transcript_data: Dict, user_query: str, 
-                      model_ids: List[str]) -> Dict:
-        """Compare responses from multiple models"""
-        comparisons = {}
-        
-        for model_id in model_ids:
-            if model_id in self.available_models:
-                result = self.process_query(transcript_data, user_query, model_id)
-                comparisons[model_id] = {
-                    'success': result.get('success', False),
-                    'response': result.get('text', '') if result.get('success') else result.get('error', ''),
-                    'processing_time': result.get('metadata', {}).get('processing_time', 0),
-                    'model_name': self.available_models[model_id].name
-                }
-        
-        return comparisons
-    
-    def get_recommendations(self, query_type: str) -> List[str]:
-        """Get recommended models for a query type"""
-        recommendations = {
-            'summary': ['gemini-2.0-flash', 'gemini-2.0-pro'],
-            'word_analysis': ['gemini-2.0-flash', 'openai/gpt-3.5-turbo'],
-            'quiz': ['gemini-2.0-pro', 'anthropic/claude-3-haiku'],
-            'translation': ['gemini-2.0-flash', 'qwen/qwen-2.5-7b-instruct'],
-            'explanation': ['gemini-2.0-pro', 'openai/gpt-3.5-turbo'],
-            'general': ['gemini-2.0-flash', 'openai/gpt-3.5-turbo']
-        }
-        
-        return recommendations.get(query_type, ['gemini-2.0-flash'])
-    
     def health_check(self) -> Dict:
         """Check health of AI providers"""
         health = {
@@ -672,7 +845,7 @@ RESPONSE:"""
         health['providers']['google_gemini'] = {
             'available': bool(self.config.GEMINI_API_KEY),
             'initialized': self.providers.get(AIProvider.GOOGLE_GEMINI, False),
-            'models': [m for m in self.available_models.values() 
+            'models': [m.id for m in self.available_models.values() 
                       if m.provider == AIProvider.GOOGLE_GEMINI]
         }
         
@@ -680,12 +853,35 @@ RESPONSE:"""
         health['providers']['openrouter'] = {
             'available': bool(self.config.OPENROUTER_API_KEY),
             'initialized': self.providers.get(AIProvider.OPENROUTER, False),
-            'models': [m for m in self.available_models.values() 
+            'models': [m.id for m in self.available_models.values() 
                       if m.provider == AIProvider.OPENROUTER]
         }
         
         return health
 
 
+class QueryClassifier:
+    """Classifies user queries to determine appropriate response type"""
+    
+    def classify(self, query: str) -> str:
+        """Classify the type of user query"""
+        query_lower = query.lower()
+        
+        if any(word in query_lower for word in ['summary', 'summarize', 'overview', 'brief']):
+            return 'summary'
+        elif any(word in query_lower for word in ['word', 'vocabulary', 'pronunciation', 'meaning', 'अर्थ', 'उच्चारण']):
+            return 'word_analysis'
+        elif any(word in query_lower for word in ['quiz', 'question', 'test', 'exam', 'प्रश्न']):
+            return 'quiz'
+        elif any(word in query_lower for word in ['translate', 'hindi', 'english', 'language', 'भाषा', 'अनुवाद']):
+            return 'translation'
+        elif any(word in query_lower for word in ['explain', 'what is', 'how to', 'why', 'कैसे', 'क्यों']):
+            return 'explanation'
+        elif any(word in query_lower for word in ['code', 'program', 'function', 'algorithm', 'कोड']):
+            return 'coding'
+        else:
+            return 'general'
+
+
 # Singleton instance for easy access
-ai_orchestrator = AIOrchestrator()  
+ai_orchestrator = AIOrchestrator()
