@@ -1,0 +1,193 @@
+!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Video Learning Platform</title>
+    
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="stylesheet" href="/static/css/video-player.css">
+    <link rel="stylesheet" href="/static/css/ai-chat.css">
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <i class="fas fa-video"></i>
+                <h1>AI Video Learning</h1>
+            </div>
+            <nav class="nav">
+                <button class="nav-btn" id="newVideoBtn">
+                    <i class="fas fa-plus"></i> New Video
+                </button>
+                <button class="nav-btn" id="settingsBtn">
+                    <i class="fas fa-cog"></i> Settings
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Video Input Section -->
+        <section class="video-input-section" id="videoInputSection">
+            <div class="container">
+                <div class="input-card">
+                    <h2>
+                        <i class="fas fa-link"></i>
+                        Enter Video URL
+                    </h2>
+                    <p class="subtitle">YouTube or Facebook video links supported</p>
+                    
+                    <div class="input-group">
+                        <input 
+                            type="text" 
+                            id="videoUrlInput" 
+                            class="video-input"
+                            placeholder="https://www.youtube.com/watch?v=..."
+                        >
+                        <button class="btn-primary" id="processVideoBtn">
+                            <i class="fas fa-play"></i>
+                            Process Video
+                        </button>
+                    </div>
+                    
+                    <div class="platform-selector">
+                        <label>Platform:</label>
+                        <select id="platformSelect">
+                            <option value="auto">Auto-detect</option>
+                            <option value="youtube">YouTube</option>
+                            <option value="facebook">Facebook</option>
+                        </select>
+                    </div>
+                    
+                    <div class="example-links">
+                        <p><small>Or try an example:</small></p>
+                        <button class="example-link" data-url="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
+                            YouTube Example
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Video Player Section -->
+        <section class="video-player-section hidden" id="videoPlayerSection">
+            <div class="container-fluid">
+                <div class="video-layout">
+                    <!-- Video Player Column -->
+                    <div class="video-column">
+                        <div class="video-container" id="videoContainer">
+                            <iframe 
+                                id="videoPlayer" 
+                                class="video-iframe"
+                                frameborder="0"
+                                allowfullscreen
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            ></iframe>
+                        </div>
+                        
+                        <div class="video-info" id="videoInfo">
+                            <h3 id="videoTitle">Loading...</h3>
+                            <p id="videoMeta"></p>
+                        </div>
+                    </div>
+
+                    <!-- AI Chat Column -->
+                    <div class="chat-column">
+                        <!-- Model Selector -->
+                        <div class="model-selector-panel">
+                            <label for="modelSelect">
+                                <i class="fas fa-robot"></i>
+                                AI Model:
+                            </label>
+                            <select id="modelSelect" class="model-select">
+                                <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash ⚡</option>
+                            </select>
+                        </div>
+
+                        <!-- Sync Toggle -->
+                        <div class="sync-controls">
+                            <label class="switch">
+                                <input type="checkbox" id="syncToggle" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span>Video-AI Sync</span>
+                        </div>
+
+                        <!-- Chat Messages -->
+                        <div class="chat-messages" id="chatMessages">
+                            <div class="welcome-message">
+                                <i class="fas fa-magic"></i>
+                                <h4>AI Assistant Ready!</h4>
+                                <p>Ask me anything about this video:</p>
+                                <div class="suggestion-chips">
+                                    <button class="chip" data-prompt="Summarize this video">📝 Summarize</button>
+                                    <button class="chip" data-prompt="Break down difficult words with pronunciation and meaning">📚 Word Analysis</button>
+                                    <button class="chip" data-prompt="Explain the main concepts">💡 Explain</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Chat Input -->
+                        <div class="chat-input-container">
+                            <textarea 
+                                id="chatInput" 
+                                class="chat-input"
+                                placeholder="Ask anything about the video..."
+                                rows="2"
+                            ></textarea>
+                            <button class="btn-send" id="sendBtn">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="chat-actions">
+                            <button class="action-btn" id="clearChatBtn">
+                                <i class="fas fa-trash"></i>
+                                Clear Chat
+                            </button>
+                            <button class="action-btn" id="exportChatBtn">
+                                <i class="fas fa-download"></i>
+                                Export
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay hidden" id="loadingOverlay">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <p id="loadingText">Processing video...</p>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div class="toast-container" id="toastContainer"></div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 AI Video Learning Platform. Made with ❤️</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/video-player.js"></script>
+    <script src="/static/js/sync-manager.js"></script>
+    <script src="/static/js/model-selector.js"></script>
+    <script src="/static/js/ai-chat.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+  </html>
