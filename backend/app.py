@@ -1,184 +1,163 @@
 """
-Main Flask Application for AI Video Platform
-Entry point for the backend server
+Main Flask Application
+Entry point for the AI Video Learning Platform
 """
 
 import os
 import sys
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from datetime import datetime
 
-# Add current directory to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import configuration
-from config import config
+from backend.config import config
+from backend.middleware.error_handler import register_error_handlers
+from backend.utils.logger import setup_logger
 
 # Import routes
-from routes.video_routes import video_bp
-from routes.ai_routes import ai_bp
-from routes.chat_routes import chat_bp
+from backend.routes.video_routes import video_bp
+from backend.routes.ai_routes import ai_bp
+from backend.routes.chat_routes import chat_bp
+from backend.routes.health_routes import health_bp
 
-# Import utilities
-from utils.logger import setup_logger
-from utils.helpers import cleanup_temp_files
+# Setup logger
+logger = setup_logger(__name__, config.LOG_LEVEL, config.LOG_FILE)
 
-# Initialize Flask app
-app = Flask(__name__, 
+# Create Flask app
+app = Flask(__name__,
            static_folder='../frontend/static',
            template_folder='../frontend')
 
-# Configure CORS
-CORS(app, origins=config.CORS_ORIGINS, supports_credentials=True)
+# Configure app
+app.config['SECRET_KEY'] = config.SECRET_KEY
+app.config['MAX_CONTENT_LENGTH'] = config.MAX_TEMP_FILE_SIZE
 
-# Set secret key
-app.secret_key = config.SECRET_KEY
+# Enable CORS
+CORS(app, 
+     origins=config.CORS_ORIGINS,
+     supports_credentials=True,
+     allow_headers=['Content-Type', 'Authorization'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
-# Setup logging
-logger = setup_logger(__name__, config.LOG_LEVEL, config.LOG_FILE)
+# Register error handlers
+register_error_handlers(app)
 
-# Register blueprints (routes)
+# Register blueprints
 app.register_blueprint(video_bp, url_prefix='/api/video')
 app.register_blueprint(ai_bp, url_prefix='/api/ai')
 app.register_blueprint(chat_bp, url_prefix='/api/chat')
+app.register_blueprint(health_bp, url_prefix='/api/health')
+
+logger.info("✅ All blueprints registered")
+
+
+# ============================================
+# MAIN ROUTES
+# ============================================
 
 @app.route('/')
 def index():
-    """Serve main frontend page"""
+    """Serve main page"""
     try:
-        return app.send_static_file('index.html')
+        return send_from_directory('../frontend', 'index.html')
     except Exception as e:
         logger.error(f"Error serving index: {e}")
         return jsonify({'error': 'Frontend not found'}), 404
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
-    try:
-        # Basic health check
-        health_data = {
-            'status': 'healthy',
-            'timestamp': datetime.now().isoformat(),
-            'service': config.APP_NAME,
-            'version': config.APP_VERSION,
-            'environment': 'production' if not config.DEBUG else 'development',
-            'features': config.FEATURES,
-            'available_models': list(config.get_available_models().keys())
-        }
-        
-        # Check external services
-        external_services = {
-            'firebase': False,
-            'gemini': bool(config.GEMINI_API_KEY),
-            'openrouter': bool(config.OPENROUTER_API_KEY),
-            'groq': bool(config.GROQ_API_KEY)
-        }
-        
-        health_data['external_services'] = external_services
-        return jsonify(health_data), 200
-        
-    except Exception as e:
-        logger.error(f"Health check error: {e}")
-        return jsonify({'status': 'unhealthy', 'error': str(e)}), 500
 
-@app.route('/api/config', methods=['GET'])
-def get_config():
-    """Get public configuration (safe to expose)"""
-    public_config = {
+@app.route('/api')
+def api_info():
+    """API information endpoint"""
+    return jsonify({
+        'success': True,
         'app_name': config.APP_NAME,
         'version': config.APP_VERSION,
+        'endpoints': {
+            'video': '/api/video',
+            'ai': '/api/ai',
+            'chat': '/api/chat',
+            'health': '/api/health'
+        },
         'features': config.FEATURES,
-        'available_models': config.get_available_models(),
-        'max_video_duration': config.MAX_VIDEO_DURATION,
-        'rate_limit': {
-            'requests': config.RATE_LIMIT_REQUESTS,
-            'window': config.RATE_LIMIT_WINDOW
-        }
-    }
-    return jsonify(public_config), 200
+        'timestamp': datetime.now().isoformat()
+    })
 
-@app.route('/api/stats', methods=['GET'])
-def get_stats():
-    """Get application statistics"""
-    from database import DatabaseManager
-    
-    try:
-        db = DatabaseManager()
-        stats = {
-            'timestamp': datetime.now().isoformat(),
-            'service': config.APP_NAME,
-            'uptime': 'N/A',  # Can be implemented with process start time
-            'memory_usage': 'N/A',
-            'active_sessions': 0,
-            'database_stats': db.get_stats()
-        }
-        return jsonify(stats), 200
-    except Exception as e:
-        logger.error(f"Stats error: {e}")
-        return jsonify({'error': str(e)}), 500
+
+# ============================================
+# REQUEST HOOKS
+# ============================================
 
 @app.before_request
 def before_request():
     """Log incoming requests"""
-    logger.info(f"{request.method} {request.path} - {request.remote_addr}")
+    from flask import request
+    logger.debug(f"📥 {request.method} {request.path} - {request.remote_addr}")
+
 
 @app.after_request
 def after_request(response):
-    """Log outgoing responses and add CORS headers"""
+    """Add headers and log responses"""
+    from flask import request
+    
     # Add CORS headers
-    response.headers.add('Access-Control-Allow-Origin', ', '.join(config.CORS_ORIGINS))
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    response.headers['Access-Control-Allow-Origin'] = ', '.join(config.CORS_ORIGINS)
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
     
     # Log response
-    logger.info(f"Response: {response.status_code} - {request.path}")
+    logger.debug(f"📤 {response.status_code} - {request.path}")
     
     return response
 
-@app.errorhandler(404)
-def not_found(error):
-    """Handle 404 errors"""
-    return jsonify({'error': 'Not found', 'path': request.path}), 404
 
-@app.errorhandler(500)
-def internal_error(error):
-    """Handle 500 errors"""
-    logger.error(f"Internal server error: {error}")
-    return jsonify({'error': 'Internal server error'}), 500
+# ============================================
+# CLEANUP ON SHUTDOWN
+# ============================================
 
-@app.errorhandler(429)
-def rate_limit_error(error):
-    """Handle rate limit errors"""
-    return jsonify({'error': 'Rate limit exceeded', 'retry_after': 60}), 429
-
-# Global exception handler
-@app.errorhandler(Exception)
-def handle_exception(error):
-    """Handle all uncaught exceptions"""
-    logger.error(f"Unhandled exception: {error}", exc_info=True)
-    return jsonify({'error': 'Internal server error', 'message': str(error)}), 500
-
-def cleanup_on_shutdown():
-    """Cleanup temporary files on shutdown"""
-    logger.info("Cleaning up temporary files...")
+def cleanup_temp_files():
+    """Cleanup temporary files"""
+    from backend.utils.helpers import cleanup_temp_files
+    logger.info("🧹 Cleaning up temporary files...")
     cleanup_temp_files(config.TEMP_DIR)
 
-# Register cleanup on shutdown
+
 import atexit
-atexit.register(cleanup_on_shutdown)
+atexit.register(cleanup_temp_files)
+
+
+# ============================================
+# RUN APPLICATION
+# ============================================
 
 if __name__ == '__main__':
-    """Run the Flask application"""
-    # Log startup information
-    logger.info(f"Starting {config.APP_NAME} v{config.APP_VERSION}")
-    logger.info(f"Environment: {'Development' if config.DEBUG else 'Production'}")
-    logger.info(f"Host: {config.HOST}, Port: {config.PORT}")
-    logger.info(f"Available models: {list(config.get_available_models().keys())}")
-    logger.info(f"Features enabled: {[k for k, v in config.FEATURES.items() if v]}")
+    # Print startup info
+    print("\n" + "="*60)
+    print(f"🚀 {config.APP_NAME} v{config.APP_VERSION}")
+    print("="*60)
+    print(f"🌍 Environment: {'Development' if config.DEBUG else 'Production'}")
+    print(f"🏠 Host: {config.HOST}:{config.PORT}")
+    print(f"📁 Temp Directory: {config.TEMP_DIR}")
+    print(f"📝 Log File: {config.LOG_FILE}")
+    print("\n🤖 AI Providers:")
+    print(f"   ✓ Google Gemini: {'Enabled' if config.GEMINI_API_KEY else 'Disabled'}")
+    print(f"   ✓ OpenRouter: {'Enabled' if config.OPENROUTER_API_KEY else 'Disabled'}")
+    print(f"   ✓ Groq Whisper: {'Enabled' if config.GROQ_API_KEY else 'Disabled'}")
+    print("\n🎥 Video Platforms:")
+    print(f"   ✓ YouTube: Enabled (Piped API)")
+    print(f"   ✓ Facebook: {'Enabled' if config.FACEBOOK_APP_ID else 'Disabled'}")
+    print("\n✨ Features:")
+    for feature, enabled in config.FEATURES.items():
+        status = '✅' if enabled else '❌'
+        print(f"   {status} {feature.replace('_', ' ').title()}")
+    print("\n" + "="*60)
+    print(f"🎯 Server starting on http://{config.HOST}:{config.PORT}")
+    print(f"📚 API Docs: http://{config.HOST}:{config.PORT}/api")
+    print("="*60 + "\n")
     
-    # Run the app
+    # Run app
     app.run(
         host=config.HOST,
         port=config.PORT,
